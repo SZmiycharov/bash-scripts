@@ -1,0 +1,80 @@
+#!/bin/bash
+
+#domashno 1 po OS, Stanislav Zmiycharov fn61883 gr3 SI kurs 2
+
+function usage
+{
+    echo "usage: os_dom1 [[[-d, --directory ] [-s, --silence]] | [-h, --help]]"
+}
+
+dir="/uniq_files/one/"
+silence_output=false
+
+# get cmd line arguments; silence for the remove files only
+while [ "$1" != "" ]; do
+    case $1 in
+        -d | --directory )      shift
+                                dir=$1
+                                ;;
+        -s | --silence )    	silence_output=true
+                                ;;
+        -h | --help )           usage
+                                exit
+                                ;;
+        * )                     usage
+                                exit 1
+    esac
+    shift
+done
+
+
+# download, extract the tar xz and remove it, all happening in the $HOME directory
+wget -P $HOME -q http://ftp.uni-sofia.bg/misc/uniq_files.tar.xz && tar xf "$HOME/uniq_files.tar.xz" -C $HOME && rm "$HOME/uniq_files.tar.xz"
+DIRECTORY="$HOME$dir"
+
+checksums_all_files=()
+checksums_repeated_files=()
+
+# populate the filenames array with all the filenames from the directory (recursive)
+declare -a filenames
+while IFS= read -r -d '' n; do
+	filenames+=( "$n" )
+done < <(find $DIRECTORY -type f -print0)
+
+# get the checksums of all the files and populate the array
+for filename in "${filenames[@]}"
+do
+	checksum_and_filename=$(eval md5sum "$(printf '%q' "$filename")")
+	checksum=$(printf %q "$checksum_and_filename" | grep -ohe "[0-9a-f]\{32\}" )
+	checksums_all_files+=("$checksum")
+done
+
+# count the unique files, by getting the unique checksums
+unique_files=0
+while read unique_file; do
+	unique_files=$((unique_files+1))
+done <<< "$(printf '%s\n' "${checksums_all_files[@]}" | sort | uniq)"
+
+printf 'Unique files: %q\n' "$unique_files"
+
+# get the checksum of only the repeated files by content
+while read checksum_repeated_file; do
+	checksums_repeated_files+=("$checksum_repeated_file")
+done <<< "$(printf '%s\n' "${checksums_all_files[@]}" | sort | uniq -c | awk '$1 > 1' | grep -ohe "[0-9a-f]\{32\}")"
+
+# delete the repeated files by content
+for filename in "${filenames[@]}"
+do
+        checksum_and_filename=$(eval md5sum "$(printf '%q' "$filename")")
+        checksum=$(printf %q "$checksum_and_filename" | grep -ohe "[0-9a-f]\{32\}" )
+    	
+	#delete only if the current's file checksum is met in the array with repeated checksums
+	if [[ " ${checksums_repeated_files[@]} " =~ " $checksum " ]]; then
+		if ! $silence_output; then
+			rm "$filename" && printf 'Removed %q\n' "$filename"
+		else
+			rm "$filename"
+		fi
+	fi
+done
+
